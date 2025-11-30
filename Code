@@ -1,0 +1,143 @@
+"""
+thrust_coefficient.py
+
+Small toolkit to compute wind-turbine thrust coefficient (C_T) using
+simple actuator-disk / axial-momentum relations and helper conversions.
+
+Functions included:
+ - ct_from_induction(a)                    : C_T = 4 a (1 - a)
+ - ct_from_force(T, rho, A, U)            : C_T = T / (0.5 * rho * A * U**2)
+ - induction_from_ct(Ct)                  : physical a = (1 - sqrt(1 - C_T)) / 2
+ - induction_from_thrust(T, rho, A, U)    : compute a from measured thrust
+ - example()                              : runs a few example calculations
+
+Notes / Limitations:
+ - The actuator-disk formula C_T = 4 a (1 - a) comes from 1D momentum theory.
+ - It is valid for moderate axial induction (typically a < ~0.3). For very high
+   loading (large a), momentum theory becomes inaccurate and you should use
+   Blade-Element Momentum (BEM) with tip-loss and empirical corrections or CFD.
+ - This module intentionally avoids advanced Glauert corrections or full BEM
+   because those require blade geometry and airfoil polars. I can add BEM if
+   you provide blade geometry (radius distribution, chord, twist, Cl(α), etc).
+
+Author: ChatGPT (as GitHub Copilot)
+Date: 2025-11-30
+"""
+
+import math
+
+
+def ct_from_induction(a: float) -> float:
+    """
+    Compute thrust coefficient C_T from axial induction factor a using
+    linear momentum (actuator disk) theory:
+        C_T = 4 * a * (1 - a)
+
+    Parameters:
+      a : axial induction factor (dimensionless). Typically 0 <= a < 0.5 for simple theory.
+
+    Returns:
+      C_T (dimensionless)
+    """
+    return 4.0 * a * (1.0 - a)
+
+
+def ct_from_force(T: float, rho: float, A: float, U: float) -> float:
+    """
+    Compute thrust coefficient from measured / computed thrust T:
+        C_T = T / (0.5 * rho * A * U^2)
+
+    Parameters:
+      T   : thrust force on rotor (N)
+      rho : air density (kg/m^3)
+      A   : swept area (m^2) = pi * R^2
+      U   : free-stream wind speed (m/s)
+
+    Returns:
+      C_T (dimensionless)
+    """
+    denom = 0.5 * rho * A * U * U
+    if denom == 0:
+        raise ValueError("Denominator zero: check rho, A, and U.")
+    return T / denom
+
+
+def induction_from_ct(Ct: float) -> float:
+    """
+    Compute the physical axial induction factor 'a' from thrust coefficient C_T
+    using the quadratic solution of 4 a (1 - a) = C_T.
+
+    The quadratic in a is: 4 a^2 - 4 a + C_T = 0
+    The two roots are:
+       a = (1 +/- sqrt(1 - C_T)) / 2
+
+    The physical (low-induction) solution is:
+       a = (1 - sqrt(1 - C_T)) / 2   (gives a in [0, 0.5] for 0 <= C_T <= 1)
+
+    Parameters:
+      Ct : thrust coefficient (dimensionless), must be 0 <= Ct <= 1 for real roots.
+
+    Returns:
+      a : axial induction factor (dimensionless)
+
+    Raises:
+      ValueError if Ct < 0 or Ct > 1 (outside simple momentum-theory bounds).
+    """
+    if Ct < 0.0:
+        raise ValueError("C_T must be non-negative.")
+    if Ct > 1.0:
+        # C_T > 1 is outside simple actuator-disk physical range for real induction.
+        raise ValueError("C_T > 1.0: outside simple momentum theory bounds (complex a).")
+    return 0.5 * (1.0 - math.sqrt(max(0.0, 1.0 - Ct)))
+
+
+def induction_from_thrust(T: float, rho: float, A: float, U: float) -> float:
+    """
+    Compute axial induction factor 'a' from thrust T (N), density, area and wind speed.
+
+    Steps:
+      - compute C_T = T / (0.5 * rho * A * U^2)
+      - return a = (1 - sqrt(1 - C_T)) / 2
+
+    Notes:
+      - if C_T is out of the 0..1 range, this function will raise.
+    """
+    Ct = ct_from_force(T, rho, A, U)
+    return induction_from_ct(Ct)
+
+
+def example():
+    """
+    Example calculations showing typical usage.
+    """
+    rho = 1.225              # kg/m^3
+    R = 40.0                 # rotor radius (m)
+    A = math.pi * R * R
+    U = 10.0                 # free-stream wind speed (m/s)
+
+    # Example 1: pick an induction factor
+    a = 1.0 / 3.0            # often used for optimum actuator-disk (for max power a=1/3)
+    Ct1 = ct_from_induction(a)
+
+    # Example 2: given a measured thrust (N)
+    # Suppose measured thrust T = 1e5 N:
+    T = 1e5
+    Ct2 = ct_from_force(T, rho, A, U)
+    try:
+        a2 = induction_from_ct(Ct2)
+    except ValueError:
+        a2 = None
+
+    print("Example calculations:")
+    print(f"Rotor radius R = {R} m, area A = {A:.1f} m^2, U = {U} m/s, rho = {rho} kg/m^3")
+    print(f"Given a = {a:.6f} => C_T = {Ct1:.6f}")
+    print(f"Given thrust T = {T:.1f} N => C_T = {Ct2:.6f}, a = {a2}")
+    print()
+    print("Notes:")
+    print(" - The simple actuator-disk relation C_T = 4 a (1 - a) is valid for moderate a (a < ~0.3).")
+    print(" - For accurate turbine-level estimates, use Blade-Element Momentum (BEM) with")
+    print("   tip-loss and stall/Glauert corrections, requiring blade geometry and airfoil polars.")
+
+
+if __name__ == "__main__":
+    example()
